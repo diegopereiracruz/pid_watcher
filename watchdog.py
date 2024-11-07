@@ -1,6 +1,8 @@
 import time
 import subprocess
 import os
+import ctypes
+import psutil
 from multiprocessing import Process, Pipe
 
 def watchdog(exec_path, main_pid, conn):
@@ -8,17 +10,26 @@ def watchdog(exec_path, main_pid, conn):
         start_time = int(time.time())
         proc = subprocess.Popen(exec_path)
         exec_pid = proc.pid
+        wd_pid = os.getpid()
+        
         print(f"[Watchdog] Processo {exec_pid} iniciado para {exec_path}")
         
         while proc.poll() is None:
+            if not psutil.pid_exists(main_pid):
+                ctypes.windll.user32.MessageBoxW(0, "O programa principal foi encerrado. O jogo será finalizado.\nSalve o seu progresso no jogo antes de encerrar.", "Atenção!", 0)
+                proc.terminate()
+                conn.close()
+                return
+            
             if conn.poll():
                 signal = conn.recv()
                 if signal == "ping":
                     uptime = int(time.time()) - start_time
                     conn.send({
                         "status": "running",
+                        "main_pid": main_pid,
                         "exec_pid": exec_pid,
-                        "wd_pid": os.getpid(),
+                        "wd_pid": wd_pid,
                         "start_time": start_time,
                         "uptime": uptime
                     })
@@ -32,8 +43,9 @@ def watchdog(exec_path, main_pid, conn):
         end_time = int(time.time())
         conn.send({
             "status": "terminated",
+            "main_pid": main_pid,
             "exec_pid": exec_pid,
-            "wd_pid": os.getpid(),
+            "wd_pid": wd_pid,
             "start_time": start_time,
             "end_time": end_time,
             "total_runtime": end_time - start_time
@@ -45,13 +57,13 @@ def watchdog(exec_path, main_pid, conn):
             proc.terminate()  # Garante que o processo é encerrado
         conn.close()
 
+
 class WatchdogManager:
     def __init__(self):
         self.watchdogs = {}  # Dicionário para armazenar watchdogs ativos
 
-    def start_watchdog(self, exec_path):
+    def start_watchdog(self, main_pid, exec_path):
         parent_conn, child_conn = Pipe()
-        main_pid = os.getpid()
         wd = Process(target=watchdog, args=(exec_path, main_pid, child_conn))
         wd.start()
         
@@ -175,4 +187,3 @@ class WatchdogManager:
             self.watchdogs.pop(wd_pid, None)
 
         print("[Manager] Todos os watchdogs foram finalizados.")
-

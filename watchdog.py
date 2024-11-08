@@ -16,7 +16,7 @@ def watchdog(exec_path, main_pid, conn):
         
         while proc.poll() is None:
             if not psutil.pid_exists(main_pid):
-                ctypes.windll.user32.MessageBoxW(0, "O programa principal foi encerrado. O jogo será finalizado.\nSalve o seu progresso no jogo antes de encerrar.", "Atenção!", 0)
+                ctypes.windll.user32.MessageBoxW(0, "Ao fechar essa janela o jogo será encerrado.\nSalve o seu progresso no jogo antes de fechar.", "O programa principal foi encerrado!", 0)
                 proc.terminate()
                 conn.close()
                 return

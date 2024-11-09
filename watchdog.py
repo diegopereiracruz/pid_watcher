@@ -38,23 +38,26 @@ def watchdog(exec_path, main_pid, conn):
                     break
             time.sleep(1)
 
-        # Processo terminou naturalmente ou foi encerrado
         end_time = int(time.time())
-        conn.send({
-            "status": "terminated",
-            "main_pid": main_pid,
-            "exec_pid": exec_pid,
-            "wd_pid": wd_pid,
-            "start_time": start_time,
-            "end_time": end_time,
-            "total_runtime": end_time - start_time
-        })
+        if conn and not conn.closed:
+            conn.send({
+                "status": "terminated",
+                "main_pid": main_pid,
+                "exec_pid": exec_pid,
+                "wd_pid": wd_pid,
+                "start_time": start_time,
+                "end_time": end_time,
+                "total_runtime": end_time - start_time
+            })
     except Exception as e:
-        conn.send({"status": "error", "message": str(e)})
+        if conn and not conn.closed:
+            conn.send({"status": "error", "message": str(e)})
     finally:
-        if proc and proc.poll() is None:  # Verifica se o processo ainda está ativo
-            proc.terminate()  # Garante que o processo é encerrado
-        conn.close()
+        if proc and proc.poll() is None:
+            proc.terminate()
+        if conn and not conn.closed:
+            conn.close()
+
 
 
 class WatchdogManager:

@@ -5,14 +5,14 @@ import ctypes
 import psutil
 from multiprocessing import Process, Pipe
 
-def watchdog(exec_path, main_pid, conn):
+def watchdog(exec_path, main_pid, conn, timeout=5):
     try:
         start_time = int(time.time())
         proc = subprocess.Popen(exec_path)
         exec_pid = proc.pid
         wd_pid = os.getpid()
         
-        print(f"[Watchdog] Processo {exec_pid} iniciado para {exec_path}")
+        print(f"[Watchdog {wd_pid}] Processo {exec_pid} iniciado para {exec_path}")
         
         while proc.poll() is None:
             if not psutil.pid_exists(main_pid):
@@ -39,16 +39,23 @@ def watchdog(exec_path, main_pid, conn):
             time.sleep(1)
 
         end_time = int(time.time())
-        if conn and not conn.closed:
-            conn.send({
-                "status": "terminated",
-                "main_pid": main_pid,
-                "exec_pid": exec_pid,
-                "wd_pid": wd_pid,
-                "start_time": start_time,
-                "end_time": end_time,
-                "total_runtime": end_time - start_time
-            })
+        
+        print(f"[Watchdog {wd_pid}] Auto-exclusão em 5 segundos. Aguardando sinal...")
+        waiting_start = time.time()
+        while time.time() - waiting_start < timeout:
+            if conn.poll():  # Checa se recebeu um sinal
+                conn.send({
+                    "status": "terminated",
+                    "main_pid": main_pid,
+                    "exec_pid": exec_pid,
+                    "wd_pid": wd_pid,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "total_runtime": end_time - start_time
+                })
+                break
+            time.sleep(0.1)
+        print(f"[Watchdog {wd_pid}] Encerrado.")
     except Exception as e:
         if conn and not conn.closed:
             conn.send({"status": "error", "message": str(e)})
@@ -80,6 +87,7 @@ class WatchdogManager:
         self.last_ping[wd.pid] = {
             "wd_pid": wd.pid,
         }
+        
         
         print(f"[Manager] Watchdog {wd.pid} iniciado para {exec_path}")
         return wd.pid  # Retorna o ID do watchdog (PID do processo watchdog)

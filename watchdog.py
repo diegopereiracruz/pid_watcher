@@ -2,78 +2,19 @@ import os
 import time
 import subprocess
 import psutil
+import ctypes
 import socket
 import json
-import tkinter
-import platform
-from tkinter import messagebox
 
-def show_message_box():
-    root = tkinter.Tk()
-    root.withdraw()  # Esconde a janela principal
-    response = messagebox.askokcancel(
-        "O programa principal foi encerrado de forma inesperada!",
-        "Nenhum dado de progresso será salvo.\n\nDeseja encerrar a aplicação em execução?"
-    )
-    return response
-
-def send_status(conn, status, main_pid, exec_pid, wd_pid, start_time, end_time=None):
-    message = {
-        "status": status,
-        "main_pid": main_pid,
-        "exec_pid": exec_pid,
-        "wd_pid": wd_pid,
-        "start_time": start_time,
-        "end_time": end_time,
-        "total_runtime": (end_time - start_time) if end_time else None
-    }
-    conn.sendall(json.dumps(message).encode('utf-8'))
-
-def verify_and_execute(file_path):
-    if not os.path.isfile(file_path):
-        print(f"'{file_path}' is not a valid file.")
-        return 0
-
-    operating_system = platform.system()
-
-    try:
-        if os.access(file_path, os.X_OK):
-            proc = subprocess.Popen([file_path])
-            print(f"'{file_path}' executed successfully.")
-            return proc
-        else:
-            if operating_system == "Linux":
-                proc = subprocess.run(["xdg-open", file_path])
-                print(f"'{file_path}' executed successfully via xdg-open.")
-                return proc
-            elif operating_system == "Windows":
-                proc = subprocess.Popen([file_path])
-                print(f"'{file_path}' executed successfully.")
-                return proc
-            else:
-                print(f"Operating system '{operating_system}' is not supported.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error when processing '{file_path}': {e}")
-    except FileNotFoundError:
-        print("The 'xdg-open' command is not available on the system.")
-    except Exception as e:
-        print(f"An unexpected error has occurred: {e}")
-    
-    return 0
-
-def watchdog(file_path, main_pid, port):
+def watchdog(exec_path, main_pid, port, timeout=5):
     """Função principal do watchdog que monitora a execução do processo do jogo."""
     try:
         start_time = int(time.time())
-        proc = verify_and_execute(file_path)
-        if proc == 0:
-            raise Exception(f"Failed to execute '{file_path}'")
-        exec_pid = proc.pid if hasattr(proc, 'pid') else None
-        if exec_pid is None:
-            raise Exception(f"Failed to retrieve PID for '{file_path}'")
+        proc = subprocess.Popen(exec_path)
+        exec_pid = proc.pid
         wd_pid = os.getpid()
         
-        print(f"[Watchdog {wd_pid}] Processo {exec_pid} iniciado para {file_path}")
+        print(f"[Watchdog {wd_pid}] Processo {exec_pid} iniciado para {exec_path}")
         
         # Configuração do socket
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -83,12 +24,33 @@ def watchdog(file_path, main_pid, port):
         
         while proc.poll() is None:
             if not psutil.pid_exists(main_pid):
-                response = show_message_box()
-                if response:
+                response = ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "Nenhum dado de progresso será salvo.\n\nDeseja encerrar a aplicação em execução?",
+                    "O programa principal foi encerrado de forma inesperada!",
+                    1 | 0x30 | 0x1  # MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON1
+                )
+                if response == 1:  # IDOK
                     proc.terminate()
-                    send_status(conn, "terminated", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
-                else:
-                    send_status(conn, "watchdog_cancelled", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
+                    conn.sendall(json.dumps({
+                        "status": "terminated",
+                        "main_pid": main_pid,
+                        "exec_pid": exec_pid,
+                        "wd_pid": wd_pid,
+                        "start_time": start_time,
+                        "end_time": int(time.time()),
+                        "total_runtime": int(time.time()) - start_time
+                    }).encode('utf-8'))
+                elif response == 2:  # IDCANCEL
+                    conn.sendall(json.dumps({
+                        "status": "watchdog_cancelled",
+                        "main_pid": main_pid,
+                        "exec_pid": exec_pid,
+                        "wd_pid": wd_pid,
+                        "start_time": start_time,
+                        "end_time": int(time.time()),
+                        "total_runtime": int(time.time()) - start_time
+                    }).encode('utf-8'))
                 break
             
             conn.settimeout(0.1)
@@ -108,14 +70,27 @@ def watchdog(file_path, main_pid, port):
                         }).encode('utf-8'))
                     elif signal == "kill":
                         proc.terminate()
-                        send_status(conn, "killed", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
+                        conn.sendall(json.dumps({
+                            "status": "killed",
+                            "main_pid": main_pid,
+                            "exec_pid": exec_pid,
+                            "wd_pid": wd_pid,
+                            "start_time": start_time,
+                            "end_time": int(time.time()),
+                            "total_runtime": int(time.time()) - start_time
+                        }).encode('utf-8'))
                         break
             except socket.timeout:
                 pass
             except ConnectionResetError:
                 if not psutil.pid_exists(main_pid):
-                    response = show_message_box()
-                    if response:
+                    response = ctypes.windll.user32.MessageBoxW(
+                        0,
+                        "Nenhum dado de progresso será salvo.\n\nEscolha uma opção:",
+                        "O programa principal foi encerrado de forma inesperada!",
+                        1 | 0x30 | 0x1  # MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON1
+                    )
+                    if response == 1:  # IDOK
                         proc.terminate()
                     break
         print(f"[Watchdog {wd_pid}] Encerrado.")

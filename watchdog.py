@@ -1,115 +1,86 @@
 import os
 import time
 import subprocess
-import psutil
-import ctypes
 import socket
 import json
 
-def watchdog(exec_path, main_pid, port, timeout=5):
-    """Função principal do watchdog que monitora a execução do processo do jogo."""
-    try:
-        start_time = int(time.time())
-        proc = subprocess.Popen(exec_path)
-        exec_pid = proc.pid
-        wd_pid = os.getpid()
-        
-        print(f"[Watchdog {wd_pid}] Processo {exec_pid} iniciado para {exec_path}")
-        
-        # Configuração do socket
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind(('localhost', port))
-        server_socket.listen(1)
-        conn, _ = server_socket.accept()
-        
-        while proc.poll() is None:
-            if not psutil.pid_exists(main_pid):
-                response = ctypes.windll.user32.MessageBoxW(
-                    0,
-                    "Nenhum dado de progresso será salvo.\n\nDeseja encerrar a aplicação em execução?",
-                    "O programa principal foi encerrado de forma inesperada!",
-                    1 | 0x30 | 0x1  # MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON1
-                )
-                if response == 1:  # IDOK
-                    proc.terminate()
-                    conn.sendall(json.dumps({
-                        "status": "terminated",
-                        "main_pid": main_pid,
-                        "exec_pid": exec_pid,
-                        "wd_pid": wd_pid,
-                        "start_time": start_time,
-                        "end_time": int(time.time()),
-                        "total_runtime": int(time.time()) - start_time
-                    }).encode('utf-8'))
-                elif response == 2:  # IDCANCEL
-                    conn.sendall(json.dumps({
-                        "status": "watchdog_cancelled",
-                        "main_pid": main_pid,
-                        "exec_pid": exec_pid,
-                        "wd_pid": wd_pid,
-                        "start_time": start_time,
-                        "end_time": int(time.time()),
-                        "total_runtime": int(time.time()) - start_time
-                    }).encode('utf-8'))
-                break
-            
-            conn.settimeout(0.1)
-            try:
-                data = conn.recv(1024)
-                if data:
-                    signal = json.loads(data.decode('utf-8'))
-                    if signal == "ping":
-                        uptime = int(time.time()) - start_time
-                        conn.sendall(json.dumps({
-                            "status": "running",
-                            "main_pid": main_pid,
-                            "exec_pid": exec_pid,
-                            "wd_pid": wd_pid,
-                            "start_time": start_time,
-                            "uptime": uptime
-                        }).encode('utf-8'))
-                    elif signal == "kill":
-                        proc.terminate()
-                        conn.sendall(json.dumps({
-                            "status": "killed",
-                            "main_pid": main_pid,
-                            "exec_pid": exec_pid,
-                            "wd_pid": wd_pid,
-                            "start_time": start_time,
-                            "end_time": int(time.time()),
-                            "total_runtime": int(time.time()) - start_time
-                        }).encode('utf-8'))
-                        break
-            except socket.timeout:
-                pass
-            except ConnectionResetError:
-                if not psutil.pid_exists(main_pid):
-                    response = ctypes.windll.user32.MessageBoxW(
-                        0,
-                        "Nenhum dado de progresso será salvo.\n\nEscolha uma opção:",
-                        "O programa principal foi encerrado de forma inesperada!",
-                        1 | 0x30 | 0x1  # MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON1
-                    )
-                    if response == 1:  # IDOK
-                        proc.terminate()
-                    break
-        print(f"[Watchdog {wd_pid}] Encerrado.")
-    except Exception as e:
+class WatchdogClient:
+    def __init__(self, exec_path, port, timeout=5):
+        self.exec_path = exec_path
+        self.port = port
+        self.timeout = timeout
+        self.main_pid = os.getpid()
+        self.watchdog_process = None
+        self.client_socket = None
+
+    def start_watchdog(self):
         try:
-            conn.sendall(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
-        except BrokenPipeError:
-            print(f"[Watchdog {wd_pid}] Erro ao enviar mensagem de erro: {e}")
-    finally:
-        conn.close()
-        server_socket.close()
+            script_name = "watchdog-win.py" if os.name == 'nt' else "watchdog-linux.py"
+            self.watchdog_process = subprocess.Popen(["python", script_name, self.exec_path, str(self.main_pid), str(self.port)])
+            self.client_socket = self.wait_for_server('localhost', self.port)
+        except Exception as e:
+            raise RuntimeError(f"Failed to start watchdog: {e}")
 
-if __name__ == "__main__":
-    import argparse
+    def wait_for_server(self, host, port):
+        start_time = time.time()
+        while time.time() - start_time < self.timeout:
+            try:
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client_socket.connect((host, port))
+                return client_socket
+            except ConnectionRefusedError:
+                time.sleep(0.1)
+            except OSError as e:
+                if e.errno == 98:  # Address already in use
+                    raise OSError(f"Port {port} is already in use")
+                else:
+                    raise e
+        raise ConnectionRefusedError(f"Could not connect to server at {host}:{port} within {self.timeout} seconds")
 
-    parser = argparse.ArgumentParser(description="Watchdog para monitoramento de processos.")
-    parser.add_argument("exec_path", help="Caminho para o executável a ser monitorado.")
-    parser.add_argument("main_pid", type=int, help="PID do processo principal.")
-    parser.add_argument("port", type=int, help="Porta para comunicação.")
-    args = parser.parse_args()
+    def send_command(self, command):
+        if not self.client_socket:
+            raise ConnectionError("Client socket is not connected")
+        try:
+            self.client_socket.sendall(json.dumps(command).encode('utf-8'))
+            response = self.client_socket.recv(1024)
+            return json.loads(response.decode('utf-8'))
+        except Exception as e:
+            raise RuntimeError(f"Failed to send command: {e}")
 
-    watchdog(args.exec_path, args.main_pid, args.port)
+    def close(self):
+        if self.client_socket:
+            try:
+                self.client_socket.close()
+            except Exception:
+                pass
+        if self.watchdog_process:
+            self.watchdog_process.terminate()
+            self.watchdog_process.wait()
+
+
+# if __name__ == "__main__":
+#     exec_path_1 = "path/to/executable"
+#     port_1 = 5001
+
+#     watchdog_client_1 = WatchdogClient(exec_path_1, port_1)
+
+#     watchdog_client_1.start_watchdog()
+#     print("watchdog_pid: ", watchdog_client_1.watchdog_process.pid)
+
+#     # Example of sending commands
+#     response = watchdog_client_1.send_command("ping")
+#     print(f"Watchdog 1 response: {response}")
+
+#     input("Ping watchdog (enter)")
+
+#     # Example of sending commands
+#     response = watchdog_client_1.send_command("ping")
+#     print(f"Watchdog 1 response: {response}")
+
+#     input("Kill watchdog (enter)")
+
+#     # Send command to kill the watchdog
+#     response = watchdog_client_1.send_command("kill")
+#     print(f"Response to killing watchdog 1: {response}")
+
+#     watchdog_client_1.close()

@@ -1,71 +1,58 @@
-# Watchdog
+# Watchdog para Monitoramento de Processos
 
-This repository contains a simple implementation of a watchdog in Python. The `watchdog.py` script monitors a specified directory for any changes and logs these events.
+Este projeto implementa um watchdog para monitorar a execução de processos em sistemas Windows e Linux. O watchdog é responsável por iniciar um processo, monitorar seu estado e responder a eventos como o término inesperado do processo principal.
 
-## Features
+## Estrutura do Projeto
 
-- Monitor a directory for file system changes
-- Log events such as file creation, modification, and deletion
+- `main.py`: Cliente que inicia o watchdog e se comunica com ele.
+- `watchdog-win.py`: Implementação do watchdog para sistemas Windows.
+- `watchdog-linux.py`: Implementação do watchdog para sistemas Linux.
 
-## Installation
+## Requisitos
 
-To install the required dependencies, run:
+- Python 3.6 ou superior
+- Bibliotecas adicionais: `psutil`, `tkinter` (para Linux), `ctypes` (para Windows)
 
-```bash
-pip install -r requirements.txt
-```
+## Instalação
 
-## /Usage
+1. Clone o repositório:
+    ```sh
+    git clone <URL_DO_REPOSITORIO>
+    cd <NOME_DO_REPOSITORIO>
+    ```
 
-Here is an example of how to use the `watchdog.py` script:
+2. Crie um ambiente virtual e ative-o:
+    ```sh
+    python -m venv venv
+    source venv/bin/activate  # Linux
+    .\venv\Scripts\activate  # Windows
+    ```
 
+3. Instale as dependências:
+    ```sh
+    pip install psutil
+    ```
+
+## Uso
+
+### Cliente Watchdog
+
+O cliente [WatchdogClient](http://_vscodecontentref_/1) em [main.py](http://_vscodecontentref_/2) é responsável por iniciar o watchdog e se comunicar com ele.
+
+Exemplo de uso:
 ```python
-import os
-import time
-import subprocess
-import socket
-import json
+from watchdog import WatchdogClient
 
-if __name__ == "__main__":
-    main_pid = os.getpid()
-    exec_path = "path\\to\\exe"
-    port = 5000
+exec_path = "caminho/para/executavel"
+port = 5001
 
-    # Start the watchdog as a subprocess
-    watchdog_process = subprocess.Popen(["python", "watchdog.py", exec_path, str(main_pid), str(port)])
+watchdog_client = WatchdogClient(exec_path, port)
+watchdog_client.start_watchdog()
 
-    # Socket configuration for communication
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(('localhost', port))
+# Enviar comandos para o watchdog
+response = watchdog_client.send_command("ping")
+print(f"Resposta do watchdog: {response}")
 
-    # Example of sending commands
-    client_socket.sendall(json.dumps("ping").encode('utf-8'))
-    response = client_socket.recv(1024)
-    string_response = json.loads(response.decode('utf-8'))
-    print(f"Watchdog response: {string_response}")
-    
-    input("Ping watchdog (enter)")
-    
-    # Example of sending commands
-    client_socket.sendall(json.dumps("ping").encode('utf-8'))
-    response = client_socket.recv(1024)
-    string_response = json.loads(response.decode('utf-8'))
-    print(f"Watchdog response: {string_response}")
-
-    input("Kill watchdog (enter)")
-    
-    # Send command to kill the watchdog
-    client_socket.sendall(json.dumps("kill").encode('utf-8'))
-    response = client_socket.recv(1024)
-    string_response = json.loads(response.decode('utf-8'))
-    print(f"Response to killing watchdog: {string_response}")
-
-    client_socket.close()
-    watchdog_process.wait()
+# Fechar o cliente
+watchdog_client.close()
 ```
-
-In this example, replace `"path\\to\\exe"` with the path to the executable you want to monitor. The script starts the watchdog as a subprocess and communicates with it using a socket.
-
-## Note
-
-The `main.py` file is not included in the repository. The example above demonstrates how to use the `watchdog.py` script.

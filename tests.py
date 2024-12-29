@@ -7,24 +7,15 @@ def verify_and_execute(file_path):
         print(f"'{file_path}' is not a valid file.")
         return 0
 
-    operating_system = platform.system()
-
     try:
         if os.access(file_path, os.X_OK):
             proc = subprocess.Popen([file_path])
             print(f"'{file_path}' executed successfully.")
             return proc
         else:
-            if operating_system == "Linux":
-                proc = subprocess.run(["xdg-open", file_path])
-                print(f"'{file_path}' executed successfully via xdg-open.")
-                return proc
-            elif operating_system == "Windows":
-                proc = subprocess.Popen([file_path])
-                print(f"'{file_path}' executed successfully.")
-                return proc
-            else:
-                print(f"Operating system '{operating_system}' is not supported.")
+            proc = subprocess.Popen(["xdg-open", file_path])
+            print(f"'{file_path}' executed successfully via xdg-open.")
+            return proc
     except subprocess.CalledProcessError as e:
         print(f"Error when processing '{file_path}': {e}")
     except FileNotFoundError:

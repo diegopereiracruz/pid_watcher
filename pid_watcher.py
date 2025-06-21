@@ -4,22 +4,26 @@ import subprocess
 import socket
 import json
 
-class WatchdogClient:
+class PID_Watcher:
     def __init__(self, exec_path, port, timeout=5):
         self.exec_path = exec_path
         self.port = port
         self.timeout = timeout
         self.main_pid = os.getpid()
-        self.watchdog_process = None
+        self.watcher_process = None
         self.client_socket = None
 
-    def start_watchdog(self):
+
+    def start_watcher(self):
         try:
-            script_name = "watchdog-win.py" if os.name == 'nt' else "watchdog-linux.py"
-            self.watchdog_process = subprocess.Popen(["python", script_name, self.exec_path, str(self.main_pid), str(self.port)])
+            file_path = os.path.dirname(__file__)
+            script_name = "pw_win.py" if os.name == 'nt' else "pw_linux.py"
+            script_path = os.path.join(file_path, script_name)
+            self.watcher_process = subprocess.Popen(["python", script_path, self.exec_path, str(self.main_pid), str(self.port)])
             self.client_socket = self.wait_for_server('localhost', self.port)
         except Exception as e:
-            raise RuntimeError(f"Failed to start watchdog: {e}")
+            raise RuntimeError(f"Failed to start watcher: {e}")
+
 
     def wait_for_server(self, host, port):
         start_time = time.time()
@@ -37,6 +41,7 @@ class WatchdogClient:
                     raise e
         raise ConnectionRefusedError(f"Could not connect to server at {host}:{port} within {self.timeout} seconds")
 
+
     def send_command(self, command):
         if not self.client_socket:
             raise ConnectionError("Client socket is not connected")
@@ -47,40 +52,13 @@ class WatchdogClient:
         except Exception as e:
             raise RuntimeError(f"Failed to send command: {e}")
 
+
     def close(self):
         if self.client_socket:
             try:
                 self.client_socket.close()
             except Exception:
                 pass
-        if self.watchdog_process:
-            self.watchdog_process.terminate()
-            self.watchdog_process.wait()
-
-
-# if __name__ == "__main__":
-#     exec_path_1 = "path/to/executable"
-#     port_1 = 5001
-
-#     watchdog_client_1 = WatchdogClient(exec_path_1, port_1)
-
-#     watchdog_client_1.start_watchdog()
-#     print("watchdog_pid: ", watchdog_client_1.watchdog_process.pid)
-
-#     # Example of sending commands
-#     response = watchdog_client_1.send_command("ping")
-#     print(f"Watchdog 1 response: {response}")
-
-#     input("Ping watchdog (enter)")
-
-#     # Example of sending commands
-#     response = watchdog_client_1.send_command("ping")
-#     print(f"Watchdog 1 response: {response}")
-
-#     input("Kill watchdog (enter)")
-
-#     # Send command to kill the watchdog
-#     response = watchdog_client_1.send_command("kill")
-#     print(f"Response to killing watchdog 1: {response}")
-
-#     watchdog_client_1.close()
+        if self.watcher_process:
+            self.watcher_process.terminate()
+            self.watcher_process.wait()

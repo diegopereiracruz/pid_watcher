@@ -7,6 +7,7 @@ import json
 import tkinter
 from tkinter import messagebox
 
+
 def show_message_box():
     root = tkinter.Tk()
     root.withdraw()  # Esconde a janela principal
@@ -16,17 +17,19 @@ def show_message_box():
     )
     return response
 
-def send_status(conn, status, main_pid, exec_pid, wd_pid, start_time, end_time=None):
+
+def send_status(conn, status, main_pid, exec_pid, watcher_pid, start_time, end_time=None):
     message = {
         "status": status,
         "main_pid": main_pid,
         "exec_pid": exec_pid,
-        "wd_pid": wd_pid,
+        "watcher_pid": watcher_pid,
         "start_time": start_time,
         "end_time": end_time,
         "total_runtime": (end_time - start_time) if end_time else None
     }
     conn.sendall(json.dumps(message).encode('utf-8'))
+
 
 def verify_and_execute(file_path):
     if not os.path.isfile(file_path):
@@ -51,8 +54,9 @@ def verify_and_execute(file_path):
     
     return 0
 
-def watchdog(file_path, main_pid, port):
-    """Função principal do watchdog que monitora a execução do processo do jogo."""
+
+def watcher(file_path, main_pid, port):
+    """Função principal do watcher que monitora a execução do processo do jogo."""
     server_socket = None
     conn = None
     try:
@@ -71,7 +75,7 @@ def watchdog(file_path, main_pid, port):
             raise Exception(f"Failed to retrieve PID for '{file_path}'")
         wd_pid = os.getpid()
         
-        print(f"[Watchdog {wd_pid}] Processo {exec_pid} iniciado para {file_path}")
+        print(f"[Watcher {wd_pid}] Processo {exec_pid} iniciado para {file_path}")
         
         while proc.poll() is None:
             if not psutil.pid_exists(main_pid):
@@ -80,7 +84,7 @@ def watchdog(file_path, main_pid, port):
                     proc.terminate()
                     send_status(conn, "terminated", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
                 else:
-                    send_status(conn, "watchdog_cancelled", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
+                    send_status(conn, "watcher_cancelled", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
                 break
             
             conn.settimeout(0.1)
@@ -110,7 +114,7 @@ def watchdog(file_path, main_pid, port):
                     if response:
                         proc.terminate()
                     break
-        print(f"[Watchdog {wd_pid}] Encerrado.")
+        print(f"[Watcher {wd_pid}] Encerrado.")
     except Exception as e:
         try:
             if conn:
@@ -118,7 +122,7 @@ def watchdog(file_path, main_pid, port):
             else:
                 print(f"Error: {e}")
         except BrokenPipeError:
-            print(f"[Watchdog {wd_pid}] Erro ao enviar mensagem de erro: {e}")
+            print(f"[Watcher {wd_pid}] Erro ao enviar mensagem de erro: {e}")
     finally:
         try:
             if conn:
@@ -135,10 +139,10 @@ def watchdog(file_path, main_pid, port):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Watchdog para monitoramento de processos.")
+    parser = argparse.ArgumentParser(description="Watcher para monitoramento de processos.")
     parser.add_argument("exec_path", help="Caminho para o executável a ser monitorado.")
     parser.add_argument("main_pid", type=int, help="PID do processo principal.")
     parser.add_argument("port", type=int, help="Porta para comunicação.")
     args = parser.parse_args()
 
-    watchdog(args.exec_path, args.main_pid, args.port)
+    watcher(args.exec_path, args.main_pid, args.port)

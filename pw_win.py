@@ -6,6 +6,7 @@ import ctypes
 import socket
 import json
 
+
 def show_message_box():
     response = ctypes.windll.user32.MessageBoxW(
         0,
@@ -15,20 +16,22 @@ def show_message_box():
     )
     return response
 
-def send_status(conn, status, main_pid, exec_pid, wd_pid, start_time, end_time=None):
+
+def send_status(conn, status, main_pid, exec_pid, watcher_pid, start_time, end_time=None):
     message = {
         "status": status,
         "main_pid": main_pid,
         "exec_pid": exec_pid,
-        "wd_pid": wd_pid,
+        "watcher_pid": watcher_pid,
         "start_time": start_time,
         "end_time": end_time,
         "total_runtime": (end_time - start_time) if end_time else None
     }
     conn.sendall(json.dumps(message).encode('utf-8'))
 
-def watchdog(exec_path, main_pid, port):
-    """Função principal do watchdog que monitora a execução do processo do jogo."""
+
+def watcher(exec_path, main_pid, port):
+    """Função principal do watcher que monitora a execução do processo do jogo."""
     try:
         if not os.path.isfile(exec_path):
             conn.sendall(json.dumps({
@@ -46,18 +49,18 @@ def watchdog(exec_path, main_pid, port):
         start_time = int(time.time())
         proc = subprocess.Popen(exec_path)
         exec_pid = proc.pid
-        wd_pid = os.getpid()
+        watcher_pid = os.getpid()
 
-        print(f"[Watchdog {wd_pid}] Processo {exec_pid} iniciado para {exec_path}")
+        print(f"[Watcher {watcher_pid}] Processo {exec_pid} iniciado para {exec_path}")
 
         while proc.poll() is None:
             if not psutil.pid_exists(main_pid):
                 response = show_message_box()
                 if response == 1:  # IDOK
                     proc.terminate()
-                    send_status(conn, "terminated", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
+                    send_status(conn, "terminated", main_pid, exec_pid, watcher_pid, start_time, int(time.time()))
                 else:  # IDCANCEL
-                    send_status(conn, "watchdog_cancelled", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
+                    send_status(conn, "watcher_cancelled", main_pid, exec_pid, watcher_pid, start_time, int(time.time()))
                 break
             
             conn.settimeout(0.1)
@@ -71,13 +74,13 @@ def watchdog(exec_path, main_pid, port):
                             "status": "running",
                             "main_pid": main_pid,
                             "exec_pid": exec_pid,
-                            "wd_pid": wd_pid,
+                            "watcher_pid": watcher_pid,
                             "start_time": start_time,
                             "uptime": uptime
                         }).encode('utf-8'))
                     elif signal == "kill":
                         proc.terminate()
-                        send_status(conn, "killed", main_pid, exec_pid, wd_pid, start_time, int(time.time()))
+                        send_status(conn, "killed", main_pid, exec_pid, watcher_pid, start_time, int(time.time()))
                         break
             except socket.timeout:
                 pass
@@ -87,23 +90,24 @@ def watchdog(exec_path, main_pid, port):
                     if response == 1:  # IDOK
                         proc.terminate()
                     break
-        print(f"[Watchdog {wd_pid}] Encerrado.")
+        print(f"[Watcher {watcher_pid}] Encerrado.")
     except Exception as e:
         try:
             conn.sendall(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
         except BrokenPipeError:
-            print(f"[Watchdog {wd_pid}] Erro ao enviar mensagem de erro: {e}")
+            print(f"[Watcher {watcher_pid}] Erro ao enviar mensagem de erro: {e}")
     finally:
         conn.close()
         server_socket.close()
 
+
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Watchdog para monitoramento de processos.")
+    parser = argparse.ArgumentParser(description="Watcher para monitoramento de processos.")
     parser.add_argument("exec_path", help="Caminho para o executável a ser monitorado.")
     parser.add_argument("main_pid", type=int, help="PID do processo principal.")
     parser.add_argument("port", type=int, help="Porta para comunicação.")
     args = parser.parse_args()
 
-    watchdog(args.exec_path, args.main_pid, args.port)
+    watcher(args.exec_path, args.main_pid, args.port)

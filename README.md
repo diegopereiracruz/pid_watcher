@@ -1,12 +1,12 @@
-# Watchdog para Monitoramento de Processos
+# PID_watcher para Monitoramento de Processos
 
-Este projeto implementa um watchdog para monitorar a execução de processos em sistemas Windows e Linux. O watchdog é responsável por iniciar um processo, monitorar seu estado e responder a eventos como o término inesperado do processo principal.
+Este projeto implementa um monitorador para monitorar a execução de processos em sistemas Windows e Linux. O watcher é responsável por iniciar um processo, monitorar seu estado e responder a eventos como o término inesperado do processo principal.
 
 ## Estrutura do Projeto
 
-- `main.py`: Cliente que inicia o watchdog e se comunica com ele.
-- `watchdog-win.py`: Implementação do watchdog para sistemas Windows.
-- `watchdog-linux.py`: Implementação do watchdog para sistemas Linux.
+- `pid_watcher.py`: Cliente que inicia o watcher e se comunica com ele.
+- `pw_win.py`: Implementação do watcher para sistemas Windows.
+- `pw_linux.py`: Implementação do watcher para sistemas Linux.
 
 ## Requisitos
 
@@ -35,24 +35,35 @@ Este projeto implementa um watchdog para monitorar a execução de processos em 
 
 ## Uso
 
-### Cliente Watchdog
+### Cliente watcher
 
-O cliente [WatchdogClient](http://_vscodecontentref_/1) em [main.py](http://_vscodecontentref_/2) é responsável por iniciar o watchdog e se comunicar com ele.
+O cliente `PID_Watcher` em `pid_watcher.py` é responsável por iniciar o watcher e se comunicar com ele.
 
 Exemplo de uso:
 ```python
-from watchdog import WatchdogClient
+from pid_watcher import PID_Watcher
 
-exec_path = "caminho/para/executavel"
-port = 5001
+if __name__ == "__main__":
+    watcher_client = PID_Watcher(exec_path="C:\\Windows\\system32\\notepad.exe", port=5001)
 
-watchdog_client = WatchdogClient(exec_path, port)
-watchdog_client.start_watchdog()
+    watcher_client.start_watcher()
+    print("watcher_pid: ", watcher_client.watcher_process.pid)
 
-# Enviar comandos para o watchdog
-response = watchdog_client.send_command("ping")
-print(f"Resposta do watchdog: {response}")
+    # Example of sending commands
+    response = watcher_client.send_command("ping")
+    print(f"Watcher response: {response}")
 
-# Fechar o cliente
-watchdog_client.close()
+    input("Ping watcher (enter)")
+
+    # Example of sending commands
+    response = watcher_client.send_command("ping")
+    print(f"Watcher response: {response}")
+
+    input("Kill watcher (enter)")
+
+    # Send command to kill the watcher
+    response = watcher_client.send_command("kill")
+    print(f"Response to killing watcher 1: {response}")
+
+    watcher_client.close()
 ```
